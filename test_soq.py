@@ -375,6 +375,86 @@ class TestBuiltins(unittest.TestCase):
                 value(src)
 
 
+class TestErrorPositions(unittest.TestCase):
+    def error(self, src):
+        with self.assertRaises(SoqError, msg=src):
+            run(src)
+        try:
+            run(src)
+        except SoqError as e:
+            return e
+
+    def test_builtin_type_errors_carry_a_position(self):
+        for src, frag in [("len(1)", "len does not work on number"),
+                          ("keys(1)", "keys does not work on number"),
+                          ("upper(1)", "upper expects a string, got number"),
+                          ("sum(1)", "sum expects an array, got number"),
+                          ('int("x")', 'cannot read a number from "x"')]:
+            e = self.error(src)
+            self.assertEqual(e.msg, frag, msg=src)
+            self.assertEqual((e.line, e.col), (1, src.index("(") + 1), msg=src)
+            self.assertEqual(str(e), f"1:{src.index('(') + 1}: {frag}", msg=src)
+
+    def test_builtin_arity_errors_are_soq_errors(self):
+        for src, frag in [("sort_by(1)", "sort_by expects 2 argument(s), got 1"),
+                          ("len()", "len expects 1 argument(s), got 0"),
+                          ("upper()", "upper expects 1 argument(s), got 0"),
+                          ("range(1, 2, 3, 4)", "range expects 1 to 3 argument(s), got 4")]:
+            e = self.error(src)
+            self.assertEqual(e.msg, frag, msg=src)
+            self.assertEqual((e.line, e.col), (1, src.index("(") + 1), msg=src)
+
+    def test_errors_from_inside_a_higher_order_builtin_are_positioned(self):
+        for src in ["map(1, [1])", "any(1, [1])", "select(1, [1])",
+                    "reduce(1, 1, [1])", "sort_by(1, [1])", "group_by(1, [1])",
+                    "all(1, [1])", "filter(1, [1])"]:
+            e = self.error(src)
+            self.assertEqual((e.line, e.col), (1, src.index("(") + 1), msg=src)
+            self.assertIn("cannot call a", e.msg, msg=src)
+
+    def test_error_text_is_the_raw_message(self):
+        self.assertNotIn("SoqError", str(self.error("len(1)")))
+        self.assertNotIn("Traceback", str(self.error("len(1)")))
+
+    def test_variadic_builtins_still_accept_any_arity(self):
+        self.assertEqual(out("print(1, 2, 3)"), ["1 2 3"])
+        self.assertEqual(out('print()'), [""])
+
+
+class TestPipeField(unittest.TestCase):
+    def test_piped_value_is_the_receiver(self):
+        self.assertEqual(out("let xs = {a: 99}\nprint(xs |> d.a)"), ["99"])
+
+    def test_placeholder_may_be_undefined(self):
+        self.assertEqual(out("let xs = {a: 99}\nprint(xs |> nope.a)"), ["99"])
+
+    def test_postfix_chain_applies_to_the_piped_value(self):
+        self.assertEqual(out("let xs = {a: {b: 7}}\nprint(xs |> d.a.b)"), ["7"])
+        self.assertEqual(out("let xs = {a: [1, 2]}\nprint(xs |> d.a[1])"), ["2"])
+
+    def test_matches_the_index_branch(self):
+        self.assertEqual(out("let xs = [1, 2]\nprint(xs |> d[0])"), ["1"])
+
+    def error(self, src):
+        with self.assertRaises(SoqError, msg=src):
+            run(src)
+        try:
+            run(src)
+        except SoqError as e:
+            return e
+
+    def test_type_and_key_errors(self):
+        for src, frag in [("print([1,2] |> d.a)",
+                           "cannot read field 'a' of a array value"),
+                          ("let xs = {a: 1}\nprint(xs |> d.zz)",
+                           "object has no key 'zz'"),
+                          ("print(1 |> d.a)",
+                           "cannot read field 'a' of a number value")]:
+            e = self.error(src)
+            self.assertIn(frag, e.msg, msg=src)
+            self.assertNotEqual(e.line, 0, msg=src)
+
+
 class TestExamples(unittest.TestCase):
     def test_tour_runs(self):
         import soq

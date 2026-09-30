@@ -1,4 +1,5 @@
 import sys
+from inspect import Parameter, signature
 
 from lexer import SoqError
 
@@ -137,6 +138,7 @@ class Interp:
     def __init__(self):
         self.global_env = Env()
         self.out = []
+        self.at = (1, 1)
         for name, fn in CORE.items():
             self.global_env.declare(name, Builtin(name, fn))
         for name, fn in BUILTINS.items():
@@ -147,7 +149,9 @@ class Interp:
         return None
 
     def call1(self, f, v):
-        return self.call_value(f, [v], (0, 0))
+        # Higher-order builtins call through here, so the position to report is
+        # the builtin call site rather than a fresh one.
+        return self.call_value(f, [v], self.at)
 
     def run(self, program):
         result = None
@@ -247,13 +251,7 @@ class Interp:
         if kind == "pipe":
             return self.pipe(node, env)
         if kind == "field":
-            obj = self.eval(node.a, env)
-            key = node.b
-            if isinstance(obj, dict):
-                if key in obj:
-                    return obj[key]
-                raise SoqError(f"object has no key '{key}'", at[0], at[1])
-            raise SoqError(f"cannot read field '{key}' of a {type_name(obj)} value", at[0], at[1])
+            return self.read_field(self.eval(node.a, env), node.b, at)
         if kind == "index":
             return self.index(self.eval(node.a, env), self.eval(node.b, env), at)
 
@@ -351,23 +349,34 @@ class Interp:
         if target.kind in ("name", "fn"):
             fn = self.eval(target, env)
             return self.apply(target, [value], env, (node.line, node.col))
-        if target.kind == "field":
-            return self.field_chain(value, target, env)
-        if target.kind == "index":
-            return self.index(value, self.eval(target.b, env), (node.line, node.col))
+        if target.kind in ("field", "index"):
+            # `xs |> d.a`: the identifier the grammar demands is a placeholder.
+            # The piped value is the receiver, so the whole postfix chain
+            # applies to it and `xs |> d.a.b` means `xs.a.b`.
+            return self.postfix_chain(value, target, env)
+
         raise SoqError("cannot pipe into this expression", node.line, node.col)
 
-    def field_chain(self, value, target, env):
-        if target.a.kind == "name":
-            base = env.lookup(target.a.a, (target.line, target.col))
-        else:
-            base = self.eval(target.a, env)
-        if not isinstance(base, dict):
-            raise SoqError(f"cannot read field '{target.b}' of a {type_name(base)} value",
-                           target.line, target.col)
-        if target.b not in base:
-            raise SoqError(f"object has no key '{target.b}'", target.line, target.col)
-        return base[target.b]
+    def postfix_chain(self, value, target, env):
+        steps = []
+        while target.kind in ("field", "index"):
+            steps.append(target)
+            target = target.a
+        for step in reversed(steps):
+            at = (step.line, step.col)
+            if step.kind == "field":
+                value = self.read_field(value, step.b, at)
+            else:
+                value = self.index(value, self.eval(step.b, env), at)
+        return value
+
+    def read_field(self, obj, key, at):
+        if not isinstance(obj, dict):
+            raise SoqError(f"cannot read field '{key}' of a {type_name(obj)} value",
+                           at[0], at[1])
+        if key not in obj:
+            raise SoqError(f"object has no key '{key}'", at[0], at[1])
+        return obj[key]
 
     def apply(self, target, args, env, at):
         if target.kind == "name":
@@ -384,14 +393,25 @@ class Interp:
 
     def call_value(self, fn, args, at):
         if isinstance(fn, Builtin):
+            if len(args) < fn.min_args or (fn.max_args is not None
+                                           and len(args) > fn.max_args):
+                want = (f"at least {fn.min_args}" if fn.max_args is None
+                        else str(fn.min_args) if fn.min_args == fn.max_args
+                        else f"{fn.min_args} to {fn.max_args}")
+                raise SoqError(
+                    f"{fn.name} expects {want} argument(s), got {len(args)}",
+                    at[0], at[1])
+            outer, self.at = self.at, at
             try:
                 return fn.fn(self, *args)
-            except SoqError:
-                raise
+            except SoqError as e:
+                raise e.locate(at[0], at[1])
             except TypeError as e:
                 raise SoqError(f"{fn.name}: {e}", at[0], at[1])
             except (IndexError, ZeroDivisionError) as e:
                 raise SoqError(f"{fn.name}: {type(e).__name__.lower()}", at[0], at[1])
+            finally:
+                self.at = outer
         if isinstance(fn, Function):
             if len(args) != len(fn.params):
                 raise SoqError(
@@ -405,10 +425,20 @@ class Interp:
 
 
 class Builtin:
-    __slots__ = ("name", "fn")
+    __slots__ = ("name", "fn", "min_args", "max_args")
 
     def __init__(self, name, fn):
         self.name, self.fn = name, fn
+        # Every builtin takes `it` first, then its soq arguments. Deriving the
+        # accepted count here means a wrong call reports a soq error rather
+        # than surfacing a Python TypeError from deep inside the call.
+        params = list(signature(fn).parameters.values())[1:]
+        kinds = (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
+        self.max_args = None if any(p.kind is Parameter.VAR_POSITIONAL
+                                    for p in params) else \
+            sum(1 for p in params if p.kind in kinds)
+        self.min_args = sum(1 for p in params
+                            if p.kind in kinds and p.default is Parameter.empty)
 
 
 CORE = {
@@ -524,7 +554,7 @@ def _reject(it, f, xs):
 def _reduce(it, f, init, xs):
     acc = init
     for x in _list("reduce", xs):
-        acc = it.call_value(f, [acc, x], (0, 0))
+        acc = it.call_value(f, [acc, x], it.at)
     return acc
 
 

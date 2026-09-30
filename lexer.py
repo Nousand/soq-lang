@@ -28,9 +28,18 @@ ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0",
 
 
 class SoqError(Exception):
-    def __init__(self, msg, line, col):
+    # line/col are optional: builtins are plain functions with no access to the
+    # call node, so they raise without one. Interp.call_value backfills the
+    # position of the call site before the error reaches the user.
+    def __init__(self, msg, line=None, col=None):
         self.msg, self.line, self.col = msg, line, col
-        super().__init__(f"{line}:{col}: {msg}")
+        super().__init__(msg if line is None else f"{line}:{col}: {msg}")
+
+    def locate(self, line, col):
+        if self.line is None:
+            self.line, self.col = line, col
+            self.args = (f"{line}:{col}: {self.msg}",)
+        return self
 
 
 class Token:
