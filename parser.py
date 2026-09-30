@@ -14,7 +14,6 @@ CALL_BINDING = 70
 
 
 class Node:
-    pass
     __slots__ = ("kind", "line", "col", "a", "b", "c", "d")
 
     def __init__(self, kind, at, a=None, b=None, c=None, d=None):
