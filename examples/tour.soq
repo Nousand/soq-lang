@@ -1,0 +1,56 @@
+# A tour of every language feature.
+
+let n = 42
+let pi = 3.5
+let name = "soq"
+let ready = true
+let missing = null
+let xs = [1, 2, 3]
+let person = { name: "Ada", age: 36, tags: ["math", "code"] }
+
+# Functions are a single expression, no braces or keywords.
+def double(x) = x * 2
+def add(a, b) = a + b
+def fib(n) = if n < 2 then n else fib(n - 1) + fib(n - 2)
+
+print("fib(10) =", fib(10))
+print("add(2, 3) =", add(2, 3))
+
+# Pipelines pass the value on the left as the LAST argument, and a pipeline
+# can run over as many lines as it needs.
+let doubled = xs |> map(double)
+let big = xs |> select(fn(x) = x > 1)
+let total = xs |> reduce(fn(a, b) = a + b, 0)
+let pipeline = xs
+  |> map(double)
+  |> select(fn(x) = x > 2)
+  |> sum
+
+print("doubled:", doubled)
+print("over 1:", big)
+print("total:", total)
+print("pipeline:", pipeline)
+
+# Indexing and field access.
+print("first:", xs[0], "last:", xs[-1])
+print("name:", person.name, "by key:", person["age"])
+print("tags:", person.tags)
+
+# if is an expression; the else branch is optional and yields null.
+let label = if person.age >= 18 then "adult" else "minor"
+print("label:", label, "| no else:", if n > 100 then "big")
+
+# A loop body is a single statement.
+let total = 0
+for x in xs do total = total + x
+
+print("total:", total)
+
+# Variables are mutable after declaration.
+let acc = 0
+acc = acc + 1
+acc = acc + 1
+print("acc:", acc)
+
+# Only false and null are falsey, so 0 and "" are true.
+print("truthiness:", 0, "", [], if 0 then "0 is true" else "0 is false")

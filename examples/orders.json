@@ -1,0 +1,6 @@
+[
+  { "customer": "ada",   "item": "book",  "total": 12.5 },
+  { "customer": "alan",  "item": "parts", "total": 240.0 },
+  { "customer": "grace", "item": "book",  "total": 18.0 },
+  { "customer": "alan",  "item": "cable", "total": 64.0 }
+]

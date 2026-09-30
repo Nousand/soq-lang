@@ -1,0 +1,21 @@
+# Summarise a set of orders. Reads examples/orders.json.
+#
+#   python3 soq.py run examples/orders.soq
+
+let orders = load_json("examples/orders.json")
+
+let expensive = orders
+  |> select(fn(o) = o.total > 100)
+  |> map(fn(o) = { customer: o.customer, total: o.total })
+
+let revenue = expensive
+  |> reduce(fn(acc, o) = acc + o.total, 0)
+
+println(len(expensive), "expensive orders, revenue", revenue)
+
+let grand = 0
+for o in orders do grand = grand + o.total
+
+println("all", len(orders), "orders, total", grand)
+
+print(to_json(expensive))
