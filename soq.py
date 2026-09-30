@@ -73,7 +73,7 @@ def main(argv):
             data = json.loads(read(argv[1]))
             interp = Interp()
             interp.global_env.declare("input", data)
-            interp.run(parse(argv[2] if len(argv) > 2 else "input"))
+            interp.run(parse(argv[2] if len(argv) > 2 else "print(input)"))
             for line in interp.out:
                 print(line)
             return 0
