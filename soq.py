@@ -72,6 +72,7 @@ def main(argv):
         if cmd == "json":
             data = json.loads(read(argv[1]))
             interp = Interp()
+            interp.global_env.declare("args", [])
             interp.global_env.declare("input", data)
             interp.run(parse(argv[2] if len(argv) > 2 else "print(input)"))
             for line in interp.out:

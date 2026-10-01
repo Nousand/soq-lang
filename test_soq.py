@@ -306,9 +306,45 @@ class TestBuiltins(unittest.TestCase):
         self.assertEqual(value('len("abc")'), 3)
         self.assertEqual(value('keys({b: 1, a: 2})'), ["a", "b"])
         self.assertEqual(value("values({b: 1, a: 2})"), [2, 1])
-        self.assertEqual(value('has({a: 1}, "a")'), True)
-        self.assertEqual(value('get({a: 1}, "b")'), None)
-        self.assertEqual(value('set({}, "a", 1)'), {"a": 1})
+        self.assertEqual(value('has("a", {a: 1})'), True)
+        self.assertEqual(value('get("b", {a: 1})'), None)
+        self.assertEqual(value('set("a", 1, {})'), {"a": 1})
+
+    def test_unhashable_keys_are_rejected(self):
+        for src, frag in [('has([1], {a: 1})', "has cannot use a array as a key"),
+                          ('set([1], 2, {})', "set cannot use a array as a key"),
+                          ('contains([], {a: 1})', "contains cannot use a array as a key"),
+                          ('contains({}, {a: 1})', "contains cannot use a object as a key")]:
+            with self.assertRaises(SoqError, msg=src):
+                value(src)
+            try:
+                value(src)
+            except SoqError as e:
+                self.assertEqual(e.msg, frag, msg=src)
+                self.assertNotIn("unhashable", e.msg, msg=src)
+
+    def test_take_and_skip_need_whole_numbers(self):
+        self.assertEqual(value("take(2, [1, 2, 3])"), [1, 2])
+        self.assertEqual(value("skip(2, [1, 2, 3])"), [3])
+        self.assertEqual(value("take(0, [1, 2])"), [])
+        self.assertEqual(value("skip(-1, [1, 2])"), [1, 2])
+        for src, frag in [("take(1.9, [1])", "take expects a whole number, got 1.9"),
+                          ("skip(1.9, [1])", "skip expects a whole number, got 1.9"),
+                          ("take(true, [1])", "take expects a whole number, got true"),
+                          ("take(null, [1])", "take expects a whole number, got null")]:
+            with self.assertRaises(SoqError, msg=src):
+                value(src)
+            try:
+                value(src)
+            except SoqError as e:
+                self.assertEqual(e.msg, frag, msg=src)
+                self.assertNotIn("slice indices", e.msg, msg=src)
+
+    def test_object_builtins_take_data_last(self):
+        self.assertEqual(out('print({a: 1} |> get("a"))'), ["1"])
+        self.assertEqual(out('print({a: 1} |> has("a"))'), ["true"])
+        self.assertEqual(out('print({} |> set("a", 1))'), ["{a: 1}"])
+        self.assertEqual(out('print({} |> set("a", 1) |> has("a"))'), ["true"])
         self.assertEqual(value("sort([3, 1, 2])"), [1, 2, 3])
         self.assertEqual(value("sort_by(fn(x) = -x, [1, 3, 2])"), [3, 2, 1])
         self.assertEqual(value("group_by(fn(x) = x % 2, [1, 2, 3])"),
@@ -323,6 +359,23 @@ class TestBuiltins(unittest.TestCase):
         self.assertEqual(value("range(3, 0, -1)"), [3, 2, 1])
         self.assertEqual(value("min([3, 1])"), 1)
         self.assertEqual(value("max([3, 1])"), 3)
+        self.assertEqual(value('min(["b", "a"])'), "a")
+        self.assertEqual(value('max(["b", "a"])'), "b")
+        self.assertEqual(value("min([])"), None)
+        self.assertEqual(value("max([])"), None)
+
+    def test_min_max_reject_unorderable_input(self):
+        for src, frag in [("min([1, 'a'])", "min cannot order a number, string mix"),
+                          ("max([1, 'a'])", "max cannot order a number, string mix"),
+                          ("min([null, 1])", "min cannot order a null, number mix"),
+                          ("min([{a: 1}])", "min cannot order a object value")]:
+            with self.assertRaises(SoqError, msg=src):
+                value(src)
+            try:
+                value(src)
+            except SoqError as e:
+                self.assertEqual(e.msg, frag, msg=src)
+                self.assertNotIn("_num()", e.msg, msg=src)
         self.assertEqual(value("sum([1, 2])"), 3)
         self.assertEqual(value("first([1, 2])"), 1)
         self.assertEqual(value("last([1, 2])"), 2)
