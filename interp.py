@@ -408,8 +408,11 @@ class Interp:
                 raise e.locate(at[0], at[1])
             except TypeError as e:
                 raise SoqError(f"{fn.name}: {e}", at[0], at[1])
-            except (IndexError, ZeroDivisionError) as e:
-                raise SoqError(f"{fn.name}: {type(e).__name__.lower()}", at[0], at[1])
+            except (IndexError, ValueError) as e:
+                raise SoqError(f"{fn.name}: {str(e) or type(e).__name__.lower()}",
+                               at[0], at[1]) from None
+            except ZeroDivisionError:
+                raise SoqError(f"{fn.name}: division by zero", at[0], at[1])
             finally:
                 self.at = outer
         if isinstance(fn, Function):
@@ -509,24 +512,33 @@ def _values(it, v):
 
 
 @_b("has")
-def _has(it, v, key):
+def _key(name, k):
+    # Object keys are strings, numbers, booleans or null. Arrays and objects
+    # have no hash, so reject them here instead of letting Python do it.
+    if isinstance(k, (list, dict, Function)):
+        raise SoqError(f"{name} cannot use a {type_name(k)} as a key")
+    return k
+
+
+@_b("has")
+def _has(it, key, v):
     _obj("has", v)
-    return key in v
+    return _key("has", key) in v
 
 
 @_b("get")
-def _get(it, v, key):
+def _get(it, key, v):
     if isinstance(v, dict):
-        return v.get(key)
+        return v.get(_key("get", key))
     if isinstance(v, list) and isinstance(key, int) and not isinstance(key, bool):
         return v[key] if -len(v) <= key < len(v) else None
     raise SoqError(f"get does not work on {type_name(v)} with {type_name(key)}")
 
 
 @_b("set")
-def _set(it, v, key, value):
+def _set(it, key, value, v):
     _obj("set", v)
-    v[key] = value
+    v[_key("set", key)] = value
     return v
 
 
@@ -605,14 +617,20 @@ def _reverse(it, xs):
     return list(reversed(_list("reverse", xs)))
 
 
+def _count(name, n):
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise SoqError(f"{name} expects a whole number, got {show(n)}")
+    return n
+
+
 @_b("take")
 def _take(it, n, xs):
-    return _list("take", xs)[:max(0, _num("take", n))]
+    return _list("take", xs)[:max(0, _count("take", n))]
 
 
 @_b("skip")
 def _skip(it, n, xs):
-    return _list("skip", xs)[max(0, _num("skip", n)):]
+    return _list("skip", xs)[max(0, _count("skip", n)):]
 
 
 @_b("flatten")
@@ -645,7 +663,7 @@ def _min(it, xs):
     xs = _list("min", xs)
     if not xs:
         return None
-    return min(xs, key=_num) if any(isinstance(x, str) for x in xs) else min(xs)
+    return min(_comparable("min", xs))
 
 
 @_b("max")
@@ -653,7 +671,18 @@ def _max(it, xs):
     xs = _list("max", xs)
     if not xs:
         return None
-    return max(xs, key=_num) if any(isinstance(x, str) for x in xs) else max(xs)
+    return max(_comparable("max", xs))
+
+
+def _comparable(name, xs):
+    # Python will not order a number against a string, nor a value against
+    # null, so check for an orderable mix up front and say so in soq terms.
+    kinds = {type_name(x) for x in xs}
+    if len(kinds) > 1:
+        raise SoqError(f"{name} cannot order a {', '.join(sorted(kinds))} mix")
+    if kinds - {"number", "string", "boolean"}:
+        raise SoqError(f"{name} cannot order a {kinds.pop()} value")
+    return xs
 
 
 @_b("sum")
@@ -738,7 +767,7 @@ def _contains(it, needle, hay):
     if isinstance(hay, list):
         return any(equal(needle, x) for x in hay)
     if isinstance(hay, dict):
-        return needle in hay
+        return _key("contains", needle) in hay
     raise SoqError(f"contains does not work on {type_name(hay)}")
 
 
