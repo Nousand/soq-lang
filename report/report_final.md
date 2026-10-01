@@ -3,10 +3,8 @@
 ## (a) What I built
 
 `soq` is a small data-oriented scripting language inspired by **jq**. It keeps jq's
-execution model — a value flows left to right through a pipeline of filters, and every
-builtin takes its data as the final argument — but replaces jq's filter syntax with a
-statement-based syntax, so an ordinary script reads top to bottom. It is written in
-Python 3.8+ with no dependencies: 1,384 lines across four files, plus 47 tests.
+pipeline model but replaces jq's syntax with a statement-based syntax, so an ordinary script reads top to bottom. It is written in
+Python 3.8+ with no dependencies: 1,384 lines across four files.
 
 ```
 source ──▶ lexer.py ──▶ parser.py ──▶ interp.py ──▶ value
@@ -24,11 +22,9 @@ the resulting value, and only then runs a complete program.
   consequence is that arrays and objects are mutable and reference-aliased: with
   `let b = a`, a later `b[0] = 99` also changes `a`.
 - **The AST is a single `Node` class** with `kind`, `line`, `col`, and up to four generic
-  slots `a, b, c, d`. Adding a form of syntax means adding a `kind` string rather than a
-  class. The cost is that slots are positional: `bin` is `(a=op, b=lhs, c=rhs)`, `call`
-  is `(a=callee, b=args)`. `Node.__repr__` is what makes that legible in a debugger.
+  slots `a, b, c, d`.
 - **Environments are a linked list of dicts.** Lookup walks up the parent chain. A
-  closure is `(params, body, defining environment)` — twelve words of Python. `for`
+  closure is `(params, body, defining environment)`. `for`
   builds a fresh `Env` per iteration, so a closure created inside a loop captures a
   distinct binding each time:
 
@@ -62,7 +58,7 @@ Statements use ordinary recursive descent.
   line begins with `|>` so a pipeline can wrap. Operators therefore sit at the end of a
   line.
 
-**Relative to the textbook version.** Donovan and Kernighan's _Writing an Interpreter in
+**Relative to the textbook version.** Thorsten Ball's _Writing an Interpreter in
 Go_ goes lexer → Parser → AST → `eval` → bytecode VM, where a `Compiler` emits opcodes
 that a stack machine executes. I stopped at `eval` and did not implement the bytecode
 tier. The trade is that a tree walker pays a Python function call per AST node and
@@ -70,17 +66,12 @@ reuses the host's frame size, while a VM centralises dispatch and can add fast p
 such as fused index-and-jump instructions. I did not need those for a language over JSON.
 
 Their lexer is table-driven over byte values with a longest-match rule. Mine is a
-hand-written scanner whose named token sets — `OPENERS`, `CLOSERS`, `ENDS_STATEMENT` —
-exist to serve the newline rule rather than to drive a DFA. From the book and from K&R I
+hand-written scanner whose named token sets: `OPENERS`, `CLOSERS`, `ENDS_STATEMENT`
+exist to serve the newline rule rather than to drive a DFA. From the book I
 kept the hand-written scanner and the practice of carrying `line`/`col` through the token
 stream into every AST node. From SICP I took the `eval` loop and the
 closure-as-environment model. From jq I took the pipeline model and the two-value
 truthiness rule.
-
-I dropped several things the book implements: variable-length string tokens, a `switch`
-statement, a `while` loop, and multi-statement function bodies. I also dropped what the
-README lists as absent — no `while`, `break`/`continue`, regex, slices, optional
-chaining, modules or pattern matching.
 
 **Orientation for a reader.** The lexer owns layout, the parser owns syntax, the
 interpreter owns semantics. `BUILTINS` at the bottom of `interp.py` is a flat registry,

@@ -72,10 +72,3 @@ All of it takes data as the final argument, so it composes with `|>`.
 
 `args` holds the arguments passed after the script name. The full reference,
 including the signature and behaviour of every builtin, is in `REFERENCE.md`.
-
-## Deliberately absent
-
-No `while`, no `break`/`continue`, no regex, no slices, no optional chaining,
-no modules, no pattern matching. Loops with a single-statement body plus
-`map`/`reduce` and recursion cover iteration, and every feature that is gone
-is one the report does not need.
